@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DUELYST - Full Grid Overlap System</title>
+    <style>
+    
+html, body {
+  
+    width: 100%;
+    height: 100%; /* Pastikan memenuhi layar */
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #000;
+    position: fixed;
+touch-action: none !important;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+/* Pastikan semua tombol punya touch-action none juga */
+.btn-attack, .btn-dash, .btn-parry, #btn-fullscreen {
+    touch-action: none !important;
+    pointer-events: auto; /* Pastikan bisa diklik */
+
+        }
+
+        canvas {
+            display: block;
+            image-rendering: pixelated; /* PENTING: Tajam */
+        }
+    
+* {
+    touch-action: none !important;
+    -webkit-touch-callout: none !important;
+    user-select: none !important;
+    -webkit-user-select: none !important;
+} /* <--- JANGAN LUPA KURUNG TUTUP INI */
+
+#ui-layer {
+    z-index: 10;
+    touch-action: none;
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+}
+
+        #fps-counter {
+            position: absolute; 
+            top: 10px; 
+            right: 15px;
+            color: #ffff; /* Warna hijau hacker */
+            font-family: monospace;
+            font-weight: bold; 
+            font-size: 9px;
+            text-shadow: 1px 1px 2px #000; 
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        #btn-fullscreen {
+            position: absolute; 
+            top: 20px; 
+            right: 20px; /* Geser ke kiri sedikit dari FPS */
+            width: 11px; height: 11px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+            color: white;
+            display: flex; 
+            justify-content: center; 
+            align-items: center;
+            font-size: 9px;
+            cursor: pointer;
+            pointer-events: auto;
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            transition: background 0.2s;
+        }
+        #btn-fullscreen:active {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(0.95);
+        }
+
+        /* JOYSTICK */
+        .joystick-base {
+            position: absolute; width: 100px; height: 100px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(2px);
+            display: none; transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+
+        .joystick-knob {
+            position: absolute; width: 40px; height: 40px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        /* BUTTONS */
+        .btn-container {
+            position: absolute;
+            bottom: 40px; right: 40px;
+            display: flex; align-items: flex-end; gap: 20px;
+            pointer-events: auto;
+        }
+
+        .btn-attack {
+            width: 80px; height: 80px;
+            border-radius: 50%;
+            background: rgba(255, 50, 50, 0.2);
+            border: 2px solid rgba(255, 100, 100, 0.4);
+            backdrop-filter: blur(4px);
+            display: flex; justify-content: center; align-items: center;
+            color: rgba(255, 255, 255, 0.7); font-weight: bold; font-size: 14px;
+            transition: transform 0.1s;
+        }
+        .btn-attack:active { background: rgba(255, 50, 50, 0.5); transform: scale(0.95); }
+
+        .btn-dash {
+            width: 60px; height: 60px;
+            border-radius: 50%;
+            background: rgba(50, 200, 255, 0.2);
+            border: 2px solid rgba(100, 220, 255, 0.4);
+            backdrop-filter: blur(4px);
+            display: flex; justify-content: center; align-items: center;
+            color: rgba(255, 255, 255, 0.7); font-weight: bold; font-size: 12px;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        .btn-dash.cooldown { opacity: 0.3; background: #333; border-color: #555; pointer-events: none; }
+
+        .btn-parry {
+            width: 70px; height: 70px;
+            border-radius: 50%;
+            background: rgba(255, 200, 50, 0.2);
+            border: 2px solid rgba(255, 220, 100, 0.4);
+            backdrop-filter: blur(4px);
+            display: flex; justify-content: center; align-items: center;
+            color: rgba(255, 255, 255, 0.8); 
+            font-weight: bold; font-size: 13px;
+            transition: transform 0.1s;
+            margin-right: -10px;
+        }
+        .btn-parry:active {
+            background: rgba(255, 200, 50, 0.5); 
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+      <div id="ui-layer">
+        <div id="joyBase" class="joystick-base">
+            <div id="joyKnob" class="joystick-knob"></div>
+        </div>
+
+        <div class="btn-container">
+            <div id="btnDash" class="btn-dash">DASH</div>
+            <div id="btnParry" class="btn-parry">PRY</div>
+            <div id="btnAttack" class="btn-attack">ATK</div>
+        </div>
+
+        <div id="fps-counter">FPS: 60</div>
+        <div id="btn-fullscreen">⛶</div>
+    </div>
+
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // UI ELEMENTS
+    const joyBase = document.getElementById('joyBase');
+    const joyKnob = document.getElementById('joyKnob');
+    const btnAttack = document.getElementById('btnAttack');
+    const btnDash = document.getElementById('btnDash');
+    const btnParry = document.getElementById('btnParry');
+    const fpsDiv = document.getElementById('fps-counter');
+    const fsBtn = document.getElementById('btn-fullscreen');
+
+    // --- 1. SETUP LAYAR & SYSTEM ---
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        ctx.imageSmoothingEnabled = false; 
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Mencegah menu klik kanan/tahan muncul
+    window.oncontextmenu = function(e) { e.preventDefault(); return false; };
+
+    // --- 2. ASSETS ---
+    const charImage = new Image();
+    charImage.crossOrigin = "Anonymous";
+    charImage.src = 'https://raw.githubusercontent.com/viqihakbarrr-cyber/DUELYST/main/DEX01.png';
+
+    const blockImage = new Image();
+    blockImage.crossOrigin = "Anonymous";
+    blockImage.src = 'https://raw.githubusercontent.com/viqihakbarrr-cyber/DUELYST/main/floor.png';
+
+    let glowCanvas = document.createElement('canvas');
+    let glowCtx = glowCanvas.getContext('2d');
+    let isGlowReady = false;
+
+    // --- CONFIG WORLD ---
+    let BLOCK_W = 0, BLOCK_H = 0;
+    let COL_STEP = 0, ROW_STEP = 0;
+    const MAP_ROWS = 100, MAP_COLS = 100;
+    const mapGrid = [];
+    let worldWidth = 0, worldHeight = 0;
+
+    blockImage.onload = function() {
+        BLOCK_W = blockImage.naturalWidth;
+        BLOCK_H = blockImage.naturalHeight;
+        COL_STEP = Math.floor(BLOCK_W * 0.75); 
+        ROW_STEP = Math.floor(BLOCK_H * 0.31); 
+        worldWidth = MAP_COLS * COL_STEP;
+        worldHeight = MAP_ROWS * ROW_STEP;
+        player.x = worldWidth / 2;
+        player.y = worldHeight / 2;
+    };
+
+    charImage.onload = function() { createGlowMap(); };
+
+    function createGlowMap() {
+        if (!charImage.complete || charImage.naturalWidth === 0) return;
+        glowCanvas.width = charImage.width;
+        glowCanvas.height = charImage.height;
+        glowCtx.drawImage(charImage, 0, 0);
+        const imgData = glowCtx.getImageData(0, 0, glowCanvas.width, glowCanvas.height);
+        const data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i+1], b = data[i+2];
+            if ((r > 130) && (r > b + 40) && (g < r) && (g > 50)) data[i+3] = 255; 
+            else data[i+3] = 0;
+        }
+        glowCtx.putImageData(imgData, 0, 0);
+        isGlowReady = true;
+    }
+
+    // --- 3. ANIMATION DATA ---
+    const SPRITE_GRID = 100; 
+    const SHEET_COLS = 10;   
+    function generateFrames(startRow, startCol, endRow, endCol) {
+        let frames = [];
+        let rStart = startRow - 1, cStart = startCol - 1;
+        let rEnd = endRow - 1, cEnd = endCol - 1;
+        for (let r = rStart; r <= rEnd; r++) {
+            let cS = (r === rStart) ? cStart : 0;
+            let cE = (r === rEnd) ? cEnd : (SHEET_COLS - 1);
+            for (let c = cS; c <= cE; c++) {
+                frames.push({ x: c * SPRITE_GRID, y: r * SPRITE_GRID, w: SPRITE_GRID, h: SPRITE_GRID });
+            }
+        }
+        return frames;
+    }
+
+    const spriteAtlas = {
+        attack:     generateFrames(1, 1,  3, 2),  
+        breathing:  generateFrames(3, 3,  4, 6),  
+        death:      generateFrames(4, 7,  6, 10), 
+        hit:        generateFrames(7, 1,  7, 3),  
+        idle:       generateFrames(7, 4,  8, 7),  
+        run:        generateFrames(8, 8,  9, 5)   
+    };
+    spriteAtlas.parry = spriteAtlas.death.slice(0, 10);
+
+    function generateWorld() {
+        for (let r = 0; r < MAP_ROWS; r++) {
+            let row = [];
+            for (let c = 0; c < MAP_COLS; c++) {
+                const cx = MAP_COLS / 2, cy = MAP_ROWS / 2;
+                const dist = Math.sqrt((c - cx)**2 + (r - cy)**2);
+                row.push(dist < 5 ? 1 : (Math.random() > 0.15 ? 1 : 0));
+            }
+            mapGrid.push(row);
+        }
+    }
+    generateWorld();
+
+    const ANIM_SPEEDS = { breathing: 8, run: 5, attack: 2, parry: 3, dash: 2, hit: 4, death: 10 };
+
+    // --- 4. GAME STATE ---
+    const player = {
+        x: 0, y: 0, vx: 0, vy: 0, maxSpeed: 3, accel: 0.15, friction: 0.85,
+        width: 100, height: 100, frameIndex: 0, tickCount: 0, 
+        state: 'breathing', direction: 1, aimAngle: Math.PI / 2, 
+        dashAngle: 0, isAttacking: false, comboTriggered: false, attackPhase: 0,
+        isDashing: false, dashSpeed: 12, dashTime: 0, canDash: true,
+        isParrying: false, slideSpeed: 0, actionQueue: null
+    };
+
+    const camera = { x: 0, y: 0, teleportRequest: false };
+    
+  // Sistem Multi-Touch yang Lebih Baik
+const activeTouches = new Map(); // Menyimpan semua touch points aktif
+
+    // INPUT STATE (JOYSTICK)
+    const input = { 
+        active: false, 
+        id: null, // Pastikan null di awal
+        originX: 0, originY: 0, 
+        vecX: 0, vecY: 0, 
+        radius: 50 
+    };
+
+    // CAMERA DRAG STATE
+    const cameraDrag = { 
+        active: false, 
+        id: null, // Pastikan null di awal
+        startX: 0, startY: 0, 
+        offsetX: 0, offsetY: 0,
+        initialOffsetX: 0, initialOffsetY: 0 
+    };
+
+    // --- 5. INPUT HANDLING BARU (ISOLATED) ---
+    // Fungsi pembantu untuk menghentikan event "bocor" ke window
+    function stopEvent(e) {
+        if (e.cancelable) e.preventDefault();
+        //e.stopPropagation(); // KUNCI: Jangan biarkan event ini naik ke Window!
+    }
+
+    // LISTENER BUTTONS (Dengan stopPropagation & Visual Feedback Manual)
+    
+    // -- ATTACK --
+    function handleAttack(e) {
+        stopEvent(e); // Stop event agar tidak dianggap Camera Drag
+        
+        // Visual Feedback (Karena preventDefault mematikan CSS :active)
+        btnAttack.style.transform = "scale(0.9)";
+        btnAttack.style.background = "rgba(255, 50, 50, 0.5)";
+
+        if (player.isDashing || player.isParrying) { player.actionQueue = 'attack'; return; }
+        
+        if (!player.isAttacking) {
+            player.isAttacking = true; player.attackPhase = 1; player.state = 'attack';
+            player.frameIndex = 0; player.tickCount = 0; player.comboTriggered = false;
+        } else if (player.attackPhase === 1) {
+            player.comboTriggered = true;
+        }
+    }
+    function resetAttackBtn() {
+        btnAttack.style.transform = "scale(1)";
+        btnAttack.style.background = "rgba(255, 50, 50, 0.2)";
+    }
+    btnAttack.addEventListener('touchstart', handleAttack, {passive: false});
+    btnAttack.addEventListener('touchend', resetAttackBtn);
+    btnAttack.addEventListener('mousedown', handleAttack);
+    btnAttack.addEventListener('mouseup', resetAttackBtn);
+
+    // -- PARRY --
+    function triggerParry(e) {
+        stopEvent(e);
+        btnParry.style.transform = "scale(0.9)";
+        
+        if (player.isDashing || player.isAttacking) { player.actionQueue = 'parry'; return; }
+        if (player.isParrying) return;
+
+        player.isParrying = true; player.state = 'parry';
+        player.frameIndex = 0; player.tickCount = 0;
+        player.parryAngle = player.aimAngle + Math.PI; player.parryTimer = 10; 
+    }
+    function resetParryBtn() { btnParry.style.transform = "scale(1)"; }
+    btnParry.addEventListener('touchstart', triggerParry, {passive: false});
+    btnParry.addEventListener('touchend', resetParryBtn);
+    btnParry.addEventListener('mousedown', triggerParry);
+    btnParry.addEventListener('mouseup', resetParryBtn);
+
+    // -- DASH --
+    function startDash(e) {
+        stopEvent(e);
+        btnDash.style.transform = "scale(0.9)";
+    }
+    function endDash(e) {
+        stopEvent(e); // Penting di touchend juga
+        btnDash.style.transform = "scale(1)";
+        
+        if (player.isAttacking || player.isParrying) { if (player.canDash) player.actionQueue = 'dash'; return; }
+        if (player.isDashing || !player.canDash) return;
+
+        player.dashAngle = player.aimAngle;
+        player.isDashing = true; player.canDash = false; player.dashTime = 10; player.state = 'run';
+        btnDash.classList.add('cooldown');
+        
+        if (input.active) {
+            if (input.vecX < -0.1) player.direction = -1;
+            if (input.vecX > 0.1) player.direction = 1;
+        }
+    }
+    btnDash.addEventListener('touchstart', startDash, {passive: false});
+    btnDash.addEventListener('touchend', endDash);
+    btnDash.addEventListener('mousedown', startDash);
+    btnDash.addEventListener('mouseup', endDash);
+
+    // -- FULLSCREEN BTN --
+    fsBtn.addEventListener('touchstart', (e) => { stopEvent(e); toggleFullscreen(); }, {passive: false});
+    
+    // --- LISTENER GLOBAL (JOYSTICK & CAMERA) ---
+    // Karena tombol sudah di-stop, event yang sampai ke sini PASTI sentuhan layar kosong
+    
+    // GANTI FUNGSI handleGlobalTouchStart DENGAN INI
+        function handleGlobalTouchStart(e) {
+        if (e.cancelable) e.preventDefault(); 
+
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+
+            // 1. FILTER: Abaikan jika menyentuh area UI/Tombol
+            if (t.target.closest('.btn-container') || t.target.closest('#btn-fullscreen')) {
+                continue; 
+            }
+
+            const isLeftScreen = t.clientX < window.innerWidth / 2;
+
+            // 2. ASSIGN JOYSTICK (Hanya jika belum aktif & di sisi kiri)
+            if (isLeftScreen && !input.active) {
+                input.active = true;
+                input.id = t.identifier; // KUNCI: Simpan ID jari ini
+                input.originX = t.clientX;
+                input.originY = t.clientY;
+                
+                // Visual Joystick
+                joyBase.style.display = 'block';
+                joyBase.style.left = input.originX + 'px';
+                joyBase.style.top = input.originY + 'px';
+                joyKnob.style.transform = `translate(-50%, -50%)`;
+                continue; // Selesai untuk jari ini
+            }
+
+            // 3. ASSIGN CAMERA (Hanya jika belum aktif & BUKAN jari joystick)
+            // Kita cek t.identifier !== input.id untuk keamanan ganda
+            if (!cameraDrag.active && t.identifier !== input.id) {
+                cameraDrag.active = true;
+                cameraDrag.id = t.identifier; // KUNCI: Simpan ID jari ini
+                cameraDrag.startX = t.clientX;
+                cameraDrag.startY = t.clientY;
+                cameraDrag.initialOffsetX = cameraDrag.offsetX;
+                cameraDrag.initialOffsetY = cameraDrag.offsetY;
+            }
+        }
+    }
+
+
+        function handleGlobalTouchMove(e) {
+        if (e.cancelable) e.preventDefault();
+
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+
+            // CEK 1: Apakah ini jari Joystick?
+            if (input.active && t.identifier === input.id) {
+                let dx = t.clientX - input.originX;
+                let dy = t.clientY - input.originY;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                if (dist > input.radius) {
+                    const angle = Math.atan2(dy, dx);
+                    dx = Math.cos(angle) * input.radius;
+                    dy = Math.sin(angle) * input.radius;
+                }
+                
+                joyKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+                input.vecX = dx / input.radius;
+                input.vecY = dy / input.radius;
+            }
+            
+            // CEK 2: Apakah ini jari Kamera? (Gunakan else if agar tidak bentrok)
+            else if (cameraDrag.active && t.identifier === cameraDrag.id) {
+                const moveX = (t.clientX - cameraDrag.startX) * 1.5;
+                const moveY = (t.clientY - cameraDrag.startY) * 1.5;
+                cameraDrag.offsetX = cameraDrag.initialOffsetX + moveX;
+                cameraDrag.offsetY = cameraDrag.initialOffsetY + moveY;
+            }
+            
+            // Jari ke-3 dst akan masuk ke sini (tidak melakukan apa-apa)
+        }
+    }
+
+
+        function handleGlobalTouchEnd(e) {
+        if (e.cancelable) e.preventDefault();
+
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+
+            // Jika jari Joystick diangkat
+            if (input.active && t.identifier === input.id) {
+                input.active = false;
+                input.id = null; // Reset ID
+                input.vecX = 0; 
+                input.vecY = 0;
+                joyBase.style.display = 'none';
+            }
+
+            // Jika jari Kamera diangkat
+            if (cameraDrag.active && t.identifier === cameraDrag.id) {
+                cameraDrag.active = false;
+                cameraDrag.id = null; // Reset ID
+                camera.teleportRequest = true; 
+            }
+        }
+    }
+
+    // Tempel listener ke WINDOW (sebagai fallback area kosong)
+    window.addEventListener('touchstart', handleGlobalTouchStart, {passive: false});
+    window.addEventListener('touchmove', handleGlobalTouchMove, {passive: false});
+    window.addEventListener('touchend', handleGlobalTouchEnd, {passive: false});
+    window.addEventListener('touchcancel', handleGlobalTouchEnd, {passive: false});
+
+
+    // --- 6. GAME LOOP ---
+    function checkQueue() {
+        if (!player.actionQueue) return;
+        const action = player.actionQueue;
+        player.actionQueue = null;
+        if (action === 'attack') handleAttack({stopPropagation:()=>{}, preventDefault:()=>{}, target: btnAttack}); // Mock event
+        else if (action === 'parry') triggerParry({stopPropagation:()=>{}, preventDefault:()=>{}});
+        else if (action === 'dash') startDash({stopPropagation:()=>{}, preventDefault:()=>{}}); // Logic dash ada di touchend
+    }
+
+    function update() {
+        // Direction
+        if (input.active) player.aimAngle = Math.atan2(input.vecY, input.vecX);
+        if (!player.isDashing && Math.abs(Math.cos(player.aimAngle)) > 0.1) {
+            player.direction = Math.cos(player.aimAngle) > 0 ? 1 : -1;
+        }
+
+        // Movement
+        if (player.isDashing) {
+            player.x += Math.cos(player.dashAngle) * player.dashSpeed;
+            player.y += Math.sin(player.dashAngle) * player.dashSpeed;
+            if (--player.dashTime <= 0) {
+                player.isDashing = false;
+                setTimeout(() => { player.canDash = true; btnDash.classList.remove('cooldown'); }, 800);
+                checkQueue();
+            }
+        } else if (player.isParrying && player.parryTimer > 0) {
+            player.x += Math.cos(player.parryAngle) * player.dashSpeed;
+            player.y += Math.sin(player.parryAngle) * player.dashSpeed;
+            player.parryTimer--;
+        } else {
+            let tvx = 0, tvy = 0;
+            const canMove = !player.isAttacking && !player.isParrying;
+            if (input.active && canMove) { tvx = input.vecX * player.maxSpeed; tvy = input.vecY * player.maxSpeed; player.state = 'run'; }
+            else if (canMove) player.state = 'breathing';
+            
+            if (canMove) { player.vx += (tvx - player.vx) * player.accel; player.vy += (tvy - player.vy) * player.accel; }
+            else { player.vx *= player.friction; player.vy *= player.friction; }
+            
+            if (player.slideSpeed > 0.1) {
+                player.vx += Math.cos(player.aimAngle) * player.slideSpeed * 0.2;
+                player.vy += Math.sin(player.aimAngle) * player.slideSpeed * 0.2;
+                player.slideSpeed *= 0.8;
+            }
+            player.x += player.vx; player.y += player.vy;
+        }
+
+        player.x = Math.max(50, Math.min(worldWidth - 50, player.x));
+        player.y = Math.max(50, Math.min(worldHeight - 50, player.y));
+
+        // Camera
+        if (camera.teleportRequest) { cameraDrag.offsetX = 0; cameraDrag.offsetY = 0; camera.teleportRequest = false; }
+        camera.x = (player.x - canvas.width / 2) + cameraDrag.offsetX;
+        camera.y = (player.y - canvas.height / 2) + cameraDrag.offsetY;
+
+        // Anim
+        player.tickCount++;
+        let spd = ANIM_SPEEDS[player.state] || 8;
+        if (player.state === 'run') {
+             const ratio = Math.sqrt(player.vx**2 + player.vy**2) / player.maxSpeed;
+             if (ratio < 0.5) spd = 10; 
+        }
+
+        if (player.tickCount > spd) {
+            player.tickCount = 0;
+            if (player.isParrying) {
+                if (++player.frameIndex >= spriteAtlas.parry.length) {
+                    player.isParrying = false; player.state = 'breathing'; player.frameIndex = 0; checkQueue();
+                }
+            } else if (player.isAttacking) {
+                player.frameIndex++;
+                const len = spriteAtlas.attack.length;
+                if (player.attackPhase === 1 && player.frameIndex > Math.floor(len/2)) {
+                    if (player.comboTriggered) { player.attackPhase = 2; player.slideSpeed = 20; }
+                    else { player.isAttacking = false; player.attackPhase = 0; player.state = 'breathing'; checkQueue(); }
+                } else if (player.attackPhase === 2 && player.frameIndex >= len) {
+                    player.isAttacking = false; player.attackPhase = 0; player.state = 'breathing'; checkQueue();
+                }
+            } else {
+                if (!spriteAtlas[player.state]) player.state = 'breathing';
+                player.frameIndex = (player.frameIndex + 1) % spriteAtlas[player.state].length;
+            }
+        }
+    }
+
+    function drawWorld() {
+        if (!blockImage.complete || BLOCK_W === 0) return;
+        const PAD = 200;
+        let c1 = Math.floor((camera.x - PAD) / COL_STEP), c2 = Math.floor((camera.x + canvas.width + PAD) / COL_STEP) + 1;
+        let r1 = Math.floor((camera.y - PAD) / ROW_STEP), r2 = Math.floor((camera.y + canvas.height + PAD) / ROW_STEP) + 2;
+        c1 = Math.max(0, c1); c2 = Math.min(MAP_COLS, c2); r1 = Math.max(0, r1); r2 = Math.min(MAP_ROWS, r2);
+
+        for (let r = r1; r < r2; r++) {
+            for (let c = c1; c < c2; c++) {
+                if (mapGrid[r][c] === 1) ctx.drawImage(blockImage, Math.floor(c * COL_STEP), Math.floor(r * ROW_STEP));
+            }
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.translate(-Math.floor(camera.x), -Math.floor(camera.y));
+        drawWorld();
+
+        if (charImage.complete) {
+            ctx.save();
+            ctx.translate(Math.round(player.x), Math.round(player.y));
+            
+            // Shadow
+            ctx.save();
+            ctx.translate(-14, player.height / 1.85); ctx.transform(1, 0, -0.8, 1, 0, 0); ctx.scale(1, -0.6);
+            if (player.direction === -1) ctx.scale(-1, 1);
+            ctx.filter = "brightness(0) blur(2px) opacity(0.4)";
+            let f = (spriteAtlas[player.state] || spriteAtlas['breathing'])[player.frameIndex] || spriteAtlas.breathing[0];
+            ctx.drawImage(charImage, f.x, f.y, f.w, f.h, -player.width/2, -player.height/2, player.width, player.height);
+            ctx.restore();
+
+            // Aim
+            ctx.save();
+            ctx.translate(0, player.height / 2.9); ctx.rotate(player.aimAngle); ctx.translate(40, 0);
+            ctx.beginPath(); ctx.moveTo(-2, -4); ctx.lineTo(5, 0); ctx.lineTo(-2, 4);
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.6)"; ctx.lineWidth = 1; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.filter = 'blur(1.6px)'; ctx.stroke();
+            ctx.restore();
+
+            // Char
+            ctx.save();
+            if (player.direction === -1) ctx.scale(-1, 1);
+            if (player.isDashing) ctx.filter = "brightness(500%) drop-shadow(0 0 10px cyan)";
+            ctx.drawImage(charImage, f.x, f.y, f.w, f.h, -player.width/2, -player.height/2, player.width, player.height);
+            if (player.isAttacking && isGlowReady) {
+                ctx.globalCompositeOperation = 'lighter'; ctx.filter = 'blur(6px) brightness(200%)';
+                ctx.drawImage(glowCanvas, f.x, f.y, f.w, f.h, -player.width/2, -player.height/2, player.width, player.height);
+            }
+            ctx.restore(); ctx.restore();
+        }
+        ctx.restore();
+        drawMinimap();
+    }
+
+    function drawMinimap() {
+        const sz = 60, m = 5;
+        ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = "rgba(0, 0, 0, 0.5)"; ctx.fillRect(m, m, sz, sz);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.3)"; ctx.lineWidth = 0.5; ctx.strokeRect(m, m, sz, sz);
+        const scale = sz / worldWidth;
+        const px = m + player.x * scale, py = m + player.y * scale;
+        ctx.translate(px, py); ctx.rotate(player.aimAngle);
+        ctx.beginPath(); ctx.moveTo(3, 0); ctx.lineTo(-2, -2); ctx.lineTo(-2, 2); ctx.closePath();
+        ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.fill();
+        ctx.restore();
+    }
+
+    function toggleFullscreen() {
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e => console.log(e));
+    }
+    fsBtn.addEventListener('click', toggleFullscreen);
+    document.addEventListener('fullscreenchange', () => fsBtn.style.display = document.fullscreenElement ? 'none' : 'flex');
+    if(document.fullscreenElement) fsBtn.style.display = 'none';
+
+    let lastLoop = 0, fpsTimer = 0, fpsCount = 0;
+    function loop(now) {
+        if (!now) now = performance.now();
+        const delta = now - lastLoop; lastLoop = now;
+        fpsCount++; fpsTimer += delta;
+        if (fpsTimer >= 1000) { fpsDiv.innerText = "FPS: " + fpsCount; fpsCount = 0; fpsTimer = 0; }
+        update(); draw();
+        requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+</script>
+
+</body>
+</html>
